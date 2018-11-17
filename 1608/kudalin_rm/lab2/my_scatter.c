@@ -103,11 +103,11 @@ int My_Scatter(void* sendbuf, int sendcount, MPI_Datatype sendtype,
 int GetBufferSize(int proc_rank, int proc_num) {
 	int i = 1;
 	int size = 1;
-	while (!(proc_rank & i) && ((proc_rank | i) < proc_num)) {
+	while (!(proc_rank & i)) {
 		size *= 2;
 		i <<= 1;
 	}
-	return size;
+	return (proc_num - proc_rank < size) ? proc_num - proc_rank : size;
 }
 
 int GetTreeOrder(int proc_num) {
