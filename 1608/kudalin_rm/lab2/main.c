@@ -1,53 +1,33 @@
-#define MSMPI_NO_DEPRECATE_20
-#define DEFAULT_ARRAY_SIZE 10 
-
 #include "my_scatter.h"
 #include <time.h>
 #include <stdio.h>
-#include <string.h>
+
+#define DEFAULT_ARRAY_SIZE 10 
+#define Ty int
+#define MPI_Ty MPI_INT
+#define FORMAT "%d "
 
 
-enum ElemType { INTEGER, FLOAT, DOUBLE };
-
-int* GenerateArrayOfIntegers(int size) {
-	int* arr = (int*)malloc(size * sizeof(int));
+int CheckEquality(void* src, void* res, int size) {
 	for (int i = 0; i < size; ++i) {
-		arr[i] = rand() % 10;
-	}
-
-	return arr;
-}
-
-float* GenerateArrayOfFloats(int size) {
-	float* arr = (float*)malloc(size * sizeof(float));
-	for (int i = 0; i < size; ++i) {
-		arr[i] = (float)(rand() / (double)RAND_MAX);
-	}
-
-	return arr;
-}
-
-double* GenerateArrayOfDoubles(int size) {
-	double* arr = (double*)malloc(size * sizeof(double));
-	for (int i = 0; i < size; ++i) {
-		arr[i] = rand() / (double)RAND_MAX;
-	}
-
-	return arr;
-}
-
-void PrintArray(void* arr, enum ElemType type, int size) {
-	for (int i = 0; i < size; ++i) {
-		switch (type) {
-		case FLOAT:
-			printf("%.3f ", ((float*)arr)[i]);
-			break;
-		case DOUBLE:
-			printf("%.3f ", ((double*)arr)[i]);
-			break;
-		case INTEGER: default:
-			printf("%d ", ((int*)arr)[i]);
+		if (((Ty*)src)[i] != ((Ty*)res)[i]) {
+			return 0;
 		}
+	}
+	return 1;
+}
+
+Ty* GenerateArray(int size) {
+	Ty* arr = (Ty*)malloc(size * sizeof(Ty));
+	for (int i = 0; i < size; ++i) {
+		arr[i] = (Ty)rand();
+	}
+	return arr;
+}
+
+void PrintArray(void* arr, int size) {
+	for (int i = 0; i < size; ++i) {
+		printf(FORMAT, ((Ty*)arr)[i]);
 	}
 	printf("\n");
 }
@@ -56,16 +36,17 @@ void PrintArray(void* arr, enum ElemType type, int size) {
 int main(int argc, char* argv[]) {
 	srand(time(NULL));
 	int proc_num, proc_rank;
-	int root = 0;                  // Root process rank 
-	double begin = .0;             // Start time
-	double end = .0;               // End time
-	enum ElemType type = INTEGER;  // Type of elements
+	int root = 0;             // Root process rank 
+	double begin = .0;        // Start time
+	double end = .0;          // End time
 
 	int size = 0;
-	void* arr = NULL;
+	void* src = NULL;
+	void* dst = NULL;
+	void* res = NULL;
 
-	if (argc != 4) {
-		printf("Error: should be 3 arguments!");
+	if (argc != 3) {
+		printf("Error: should be 2 arguments!");
 		exit(EXIT_FAILURE);
 	}
 
@@ -80,14 +61,6 @@ int main(int argc, char* argv[]) {
 		exit(EXIT_FAILURE);
 	}
 
-	if (strcmp(argv[3], "-i") == 0) {
-		type = INTEGER;
-	} else if (strcmp(argv[3], "-f") == 0) {
-		type = FLOAT;
-	} else if (strcmp(argv[3], "-d") == 0) {
-		type = DOUBLE;
-	}
-
 	if (proc_rank == root) {
 		printf("Root rank = %d\n", root);
 		size = atoi(argv[1]);
@@ -97,64 +70,40 @@ int main(int argc, char* argv[]) {
 
 			size = DEFAULT_ARRAY_SIZE;
 		}
-		switch (type) {
-		case FLOAT:
-			arr = GenerateArrayOfFloats(size);
-			break;
-		case DOUBLE:
-			arr = GenerateArrayOfDoubles(size);
-			break;
-		case INTEGER: default:
-			arr = GenerateArrayOfIntegers(size);
-		}
+		src = GenerateArray(size);
 		if (size <= 20) {
-			PrintArray(arr, type, size);
+			PrintArray(src, size);
 		}
-		printf("\n");
+		res = (Ty*)malloc(size * sizeof(Ty));
 	}
 
 	MPI_Bcast(&size, 1, MPI_INT, root, MPI_COMM_WORLD);
 	size /= proc_num;
+	dst = (Ty*)malloc(size * sizeof(Ty));
 
-	void* buf = NULL;
-	switch (type) {
-	case FLOAT:
-		buf = malloc(size * sizeof(float));
-		MPI_Barrier(MPI_COMM_WORLD);
-		begin = MPI_Wtime();
-		My_Scatter(arr, size, MPI_FLOAT, buf, size, MPI_FLOAT, root, MPI_COMM_WORLD);
-		MPI_Barrier(MPI_COMM_WORLD);
-		end = MPI_Wtime();
-		break;
-	case DOUBLE:
-		buf = malloc(size * sizeof(double));
-		MPI_Barrier(MPI_COMM_WORLD);
-		begin = MPI_Wtime();
-		My_Scatter(arr, size, MPI_DOUBLE, buf, size, MPI_DOUBLE, root, MPI_COMM_WORLD);
-		MPI_Barrier(MPI_COMM_WORLD);
-		end = MPI_Wtime();
-		break;
-	case INTEGER: default:
-		buf = malloc(size * sizeof(int));
-		MPI_Barrier(MPI_COMM_WORLD);
-		begin = MPI_Wtime();
-		My_Scatter(arr, size, MPI_INT, buf, size, MPI_INT, root, MPI_COMM_WORLD);
-		MPI_Barrier(MPI_COMM_WORLD);
-		end = MPI_Wtime();
-	}
+	MPI_Barrier(MPI_COMM_WORLD);
+	begin = MPI_Wtime();
+	My_Scatter(src, size, MPI_Ty, dst, size, MPI_Ty, root, MPI_COMM_WORLD);
+	MPI_Barrier(MPI_COMM_WORLD);
+	end = MPI_Wtime();
+
+	MPI_Gather(dst, size, MPI_Ty, res, size, MPI_Ty, root, MPI_COMM_WORLD);
 
 	if (size <= 10) {
 		printf("Rank %d received: ", proc_rank);
-		PrintArray(buf, type, size);
+		PrintArray(dst, size);
 	}
 
 	if (proc_rank == root) {
 		printf("\nMy_Scatter time = %lf\n", end - begin);
-		free(arr);
+		printf("Status = %d", CheckEquality(src, res, size * proc_num));
+		free(src);
+		free(res);
 	}
 
-	free(buf);
+	free(dst);
 
 	MPI_Finalize();
+
 	return 0;
 }
