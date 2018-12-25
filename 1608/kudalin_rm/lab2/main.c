@@ -96,7 +96,7 @@ int main(int argc, char* argv[]) {
 
 	if (proc_rank == root) {
 		printf("\nMy_Scatter time = %lf\n", end - begin);
-		printf("Status = %d", CheckEquality(src, res, size * proc_num));
+		printf("\nSTATUS = %d", CheckEquality(src, res, size * proc_num));
 		free(src);
 		free(res);
 	}
